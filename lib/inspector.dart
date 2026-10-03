@@ -11,6 +11,7 @@ class Finding {
 }
 
 const _priority = [
+  'Your connection',
   'DNS',
   'Network',
   'TLS / certificate',
@@ -19,7 +20,21 @@ const _priority = [
   'Proxy / load balancer',
   'Firewall / bot protection',
   'Request / auth',
+  'Page assets',
 ];
+
+const layerSteps = <String, List<String>>{
+  'Your connection': ['Check Wi-Fi or mobile data.', 'Try another network, then run the check again.'],
+  'DNS': ['Confirm the domain has not expired at your registrar.', 'Check the A, AAAA or CNAME records at your DNS provider.', 'If you changed records recently, wait for DNS to propagate.'],
+  'Network': ['Check the server or VM is running.', 'Check the firewall or security group allows the port.', 'Check the load balancer has healthy targets.'],
+  'TLS / certificate': ['Renew or reinstall the certificate.', 'Serve the full certificate chain.', 'Make sure this domain name is on the certificate.'],
+  'Database / dependency': ['Check the database is up and accepting connections.', 'Check connection pool size and slow queries.', 'Look at recent credential or schema changes.'],
+  'Origin server': ['Read the app logs around the time of the failure.', 'Check the app process is running, and restart it if it crashed.', 'Check CPU, memory and disk on the host.', 'If it started after a deploy, roll that deploy back.'],
+  'Proxy / load balancer': ['Check the backend health checks.', 'Check proxy timeouts and size limits.', 'Check the app listens on the port the proxy expects.'],
+  'Firewall / bot protection': ['Allow-list your monitoring IP.', 'Review WAF and rate-limit rules.', 'Test again from a different network.'],
+  'Request / auth': ['Check the URL path and method.', 'Check tokens or credentials.', 'Check API gateway routes.'],
+  'Page assets': ['Fix or redeploy the missing files listed in Findings.', 'Check the CDN or storage bucket serving them.', 'Serve everything over HTTPS.'],
+};
 
 /// The earliest failing layer on the request path, preferring the most specific cause.
 String? verdict(List<Finding> f) {
@@ -172,6 +187,12 @@ List<Finding> inspect(ProbeResult p) {
   final h = p.headers;
   final s = p.status;
   final body = p.body.toLowerCase();
+
+  if (p.deviceOffline) {
+    return [
+      Finding(2, 'Your device looks offline', 'The phone could not reach the internet at all, so this says nothing about the site.', 'Your connection'),
+    ];
+  }
 
   // ---- DNS ----
   if (p.dnsError != null) {
@@ -366,6 +387,24 @@ List<Finding> inspect(ProbeResult p) {
     f.add(Finding(2, 'Very slow response', 'First byte took ${(p.ttfbMs! / 1000).toStringAsFixed(1)}s.', 'Origin server'));
   } else if ((p.ttfbMs ?? 0) > 3000) {
     f.add(Finding(1, 'Slow response', 'First byte took ${(p.ttfbMs! / 1000).toStringAsFixed(1)}s.', 'Origin server'));
+  }
+
+  final a = p.audit;
+  if (a != null && a.total > 0) {
+    if (a.issues.isEmpty) {
+      f.add(Finding(0, 'Page assets OK', 'All ${a.total} scripts, styles and images in the HTML loaded.'));
+    } else {
+      final sev = a.issues.any((x) => x.severity == 2) ? 2 : 1;
+      f.add(Finding(
+          sev,
+          '${a.issues.length} of ${a.total} page assets have problems',
+          a.issues.take(6).map((x) {
+            final u = Uri.tryParse(x.url);
+            final short = u == null ? x.url : '${u.host}${u.path}';
+            return '${x.problem}: $short';
+          }).join('\n'),
+          'Page assets'));
+    }
   }
 
   final stack = [

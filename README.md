@@ -24,6 +24,8 @@ The score is a timing-overlap heuristic, not proof. Public probing cannot see se
 is why the Sentry and GitHub integrations exist.
 
 ## What it detects
+Sentry and GitHub are optional. Everything below works without any account.
+
 - DNS: failures, localhost/private IPs, slow lookups, parked domains.
 - Network: every IP behind the name is tested separately (finds one dead server), refused/timed-out/reset connections, captive portals.
 - TLS: expired, wrong hostname, self-signed, incomplete chain, protocol mismatch, expiring soon, clock problems.

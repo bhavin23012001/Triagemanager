@@ -58,9 +58,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Integrations')),
+      appBar: AppBar(title: const Text('Backend correlation')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        const Text('Use read-only credentials. Without them the app can only diagnose the network layer.',
+        const Text('Optional. The app works fully without these. Add read-only Sentry or GitHub details only if you want failures linked to backend errors and recent commits.',
             style: TextStyle(color: Color(0xFF9AA7B5))),
         const SizedBox(height: 16),
         for (final e in c.entries)

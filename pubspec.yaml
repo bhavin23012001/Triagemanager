@@ -1,7 +1,7 @@
 name: triage_agent
 description: On-call triage agent. Probes a URL and correlates failures with Sentry errors and GitHub commits.
 publish_to: none
-version: 0.2.0+2
+version: 0.3.0+3
 environment:
   sdk: ">=3.3.0 <4.0.0"
 dependencies:

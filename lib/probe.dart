@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'audit.dart';
 
 class ProbeResult {
   ProbeResult({required this.url, required this.at});
   final Uri url;
   final DateTime at;
+  Uri? finalUrl;
+  bool deviceOffline = false;
+  AuditResult? audit;
   int? dnsMs;
   String? dnsError;
   List<InternetAddress> addrs = [];
@@ -51,7 +55,7 @@ class ProbeResult {
 
 class Prober {
   static Future<ProbeResult> run(String input,
-      {Duration timeout = const Duration(seconds: 30)}) async {
+      {Duration timeout = const Duration(seconds: 30), void Function(String)? onStage}) async {
     final t = input.trim();
     final uri = Uri.tryParse(t.contains('://') ? t : 'https://$t') ?? Uri();
     final r = ProbeResult(url: uri, at: DateTime.now());
@@ -61,15 +65,18 @@ class Prober {
     }
     final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
 
+    onStage?.call('Resolving DNS');
     var sw = Stopwatch()..start();
     try {
       r.addrs = await InternetAddress.lookup(uri.host).timeout(const Duration(seconds: 10));
       r.dnsMs = sw.elapsedMilliseconds;
     } catch (e) {
       r.dnsError = friendly(e);
+      r.deviceOffline = !(await _online());
       return r;
     }
 
+    onStage?.call('Testing each server');
     // Check every address separately: one dead server behind DNS causes random failures.
     await Future.wait(r.addrs.take(4).map((a) async {
       final s = Stopwatch()..start();
@@ -85,11 +92,13 @@ class Prober {
     final okMs = r.ipMs.values.whereType<int>().toList();
     if (okMs.isEmpty) {
       r.httpError = r.ipErr.values.first;
+      r.deviceOffline = !(await _online());
       return r;
     }
     r.tcpMs = okMs.reduce((a, b) => a < b ? a : b);
 
     if (uri.scheme == 'https') {
+      onStage?.call('Checking the certificate');
       sw = Stopwatch()..start();
       try {
         final s = await SecureSocket.connect(uri.host, port, timeout: const Duration(seconds: 10));
@@ -108,6 +117,7 @@ class Prober {
       }
     }
 
+    onStage?.call('Requesting the page');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     sw = Stopwatch()..start();
     try {
@@ -116,7 +126,7 @@ class Prober {
       for (var hop = 0; hop < 6; hop++) {
         final req = await client.getUrl(current);
         req.followRedirects = false;
-        req.headers.set('user-agent', 'TriageAgent/0.2');
+        req.headers.set('user-agent', 'TriageAgent/0.3');
         resp = await req.close().timeout(timeout);
         final loc = resp.headers.value('location');
         if (resp.isRedirect && loc != null) {
@@ -134,6 +144,7 @@ class Prober {
       }
       final fr = resp;
       if (fr != null) {
+        r.finalUrl = current;
         r.ttfbMs = sw.elapsedMilliseconds;
         r.status = fr.statusCode;
         r.reason = fr.reasonPhrase;
@@ -167,19 +178,41 @@ class Prober {
       client.close(force: true);
     }
 
-    // Repeat the request and try nearby paths in parallel.
+    onStage?.call('Cross-checking paths and page assets');
+    final Future<AuditResult?> auditF = (r.status != null &&
+            r.status! < 400 &&
+            (r.contentType ?? '').contains('html') &&
+            !r.truncated)
+        ? auditAssets(r.finalUrl ?? uri, r.body)
+        : Future<AuditResult?>.value(null);
     r.repeats.add(r.status);
     final paths = ['/', '/health', '/healthz', '/robots.txt']
         .where((p) => p != uri.path && !(p == '/' && uri.path.isEmpty))
         .toList();
     final reps = Future.wait([_once(uri), _once(uri)]);
     final comps = Future.wait(paths.map((p) => _once(_base(uri, p))));
+    r.audit = await auditF;
     r.repeats.addAll(await reps);
     final res = await comps;
     for (var i = 0; i < paths.length; i++) {
       r.companions[paths[i]] = res[i];
     }
     return r;
+  }
+
+  /// True when the phone itself has internet access.
+  static Future<bool> _online() async {
+    try {
+      final s = await Socket.connect('1.1.1.1', 443, timeout: const Duration(seconds: 3));
+      s.destroy();
+      return true;
+    } catch (_) {}
+    try {
+      await InternetAddress.lookup('example.com').timeout(const Duration(seconds: 3));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Uri _base(Uri u, String path) => Uri(
