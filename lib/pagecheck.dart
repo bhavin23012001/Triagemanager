@@ -9,7 +9,13 @@ window.addEventListener('error',function(e){
 if(e.target&&e.target!==window){s('Resource failed: '+(e.target.src||e.target.href||e.target.tagName));}
 else{s('JS error: '+e.message+' ('+(e.filename||'')+':'+e.lineno+')');}},true);
 window.addEventListener('unhandledrejection',function(e){s('Unhandled promise rejection: '+(e.reason&&e.reason.message||e.reason));});
+document.addEventListener('securitypolicyviolation',function(e){s('CSP blocked '+e.blockedURI+' ('+e.violatedDirective+')');});
 var ce=console.error;console.error=function(){s('console.error: '+Array.prototype.slice.call(arguments).join(' '));ce.apply(console,arguments);};
+var of=window.fetch;
+if(of){window.fetch=function(){var a=arguments;var u=(a[0]&&a[0].url)||a[0];
+return of.apply(this,a).then(function(r){if(!r.ok){s('API call failed: '+r.status+' '+u);}return r;},function(e){s('API call error: '+u+' ('+e+')');throw e;});};}
+var ox=XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open=function(m,u){this.addEventListener('loadend',function(){if(this.status===0||this.status>=400){s('API call failed: '+this.status+' '+u);}});return ox.apply(this,arguments);};
 })();
 """;
 
@@ -38,7 +44,14 @@ class _PageCheckScreenState extends State<PageCheckScreen> {
       ..addJavaScriptChannel('Err', onMessageReceived: (m) => _add(m.message))
       ..setNavigationDelegate(NavigationDelegate(
         onPageStarted: (_) => c.runJavaScript(_hook),
-        onPageFinished: (_) {
+        onPageFinished: (_) async {
+          await Future.delayed(const Duration(seconds: 2));
+          try {
+            final r = await c.runJavaScriptReturningResult(
+                '(document.body ? document.body.innerText.trim().length : -1)');
+            final n = int.tryParse(r.toString().replaceAll('"', '')) ?? -1;
+            if (n >= 0 && n < 20) _add('Page looks blank: almost no visible text was rendered');
+          } catch (_) {}
           if (mounted) setState(() => done = true);
         },
         onWebResourceError: (e) => _add(

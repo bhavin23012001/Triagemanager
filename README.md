@@ -23,5 +23,11 @@ Sentry issues and recent GitHub commits. Tap **Demo** to explore the UI without 
 The score is a timing-overlap heuristic, not proof. Public probing cannot see server internals; that
 is why the Sentry and GitHub integrations exist.
 
-## Deep inspect
-After a probe the app reads the response body and headers (Cloudflare 52x codes, framework error pages, rate limits, redirects), repeats the request 3x to spot intermittent failures, and can open the page in a WebView to capture JavaScript errors and failed resources. Page check relies on webview_flutter and is untested on device.
+## What it detects
+- DNS: failures, localhost/private IPs, slow lookups, parked domains.
+- Network: every IP behind the name is tested separately (finds one dead server), refused/timed-out/reset connections, captive portals.
+- TLS: expired, wrong hostname, self-signed, incomplete chain, protocol mismatch, expiring soon, clock problems.
+- HTTP: full status table, Cloudflare 52x/10xx, AWS/Vercel/Heroku/Cloud Run/Railway/Azure errors, nginx/Envoy/HAProxy/Apache/Varnish messages, framework crash pages, database and pool errors, WAF/bot blocks, maintenance and default pages.
+- Behaviour: 3 requests to catch intermittent failures, /, /health, /healthz comparison to tell one broken route from a dead site, truncated responses, invalid JSON, HTML where JSON was expected, redirect loops.
+- Page JS check: script errors, failed resources, failed fetch/XHR calls, CSP blocks, blank pages.
+A "failing layer" verdict is picked from the findings. Copy report exports everything as text.

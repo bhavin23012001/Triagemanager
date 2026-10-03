@@ -137,7 +137,16 @@ class Correlator {
       ..status = 504
       ..reason = 'Gateway Timeout'
       ..ttfbMs = 30200
-      ..cdn = 'Cloudflare';
+      ..cdn = 'Cloudflare'
+      ..tcpMs = 31
+      ..tlsMs = 48
+      ..ipMs['104.18.1.1'] = 31
+      ..ipMs['104.18.2.2'] = null
+      ..ipErr['104.18.2.2'] = 'Connection timed out'
+      ..headers['cf-ray'] = 'demo'
+      ..companions['/'] = 200
+      ..companions['/health'] = 504
+      ..repeats.addAll([504, 200, 504]);
     final d = Diagnosis()
       ..score = 85
       ..summary = 'PoolTimeoutError (checkout/cart.py:88) is the likely cause of the 504 Gateway Timeout. '
