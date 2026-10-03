@@ -6,14 +6,22 @@ import 'inspector.dart';
 import 'main.dart' show bg, card, muted, amber, teal, blue, red, line, violet;
 import 'pagecheck.dart';
 import 'probe.dart';
+import 'rootcause.dart';
 import 'ui.dart';
 
 class Report {
-  Report(this.probe, this.findings, this.layer, this.backend);
+  Report(this.probe, this.findings, this.baseLayer, this.backend);
   final ProbeResult probe;
   final List<Finding> findings;
-  final String? layer;
+  final String? baseLayer;
   final Diagnosis? backend;
+
+  /// Candidate root causes, best first, scored from all the evidence.
+  late final List<RootCause> causes = rankCauses(probe, backendScore: backend?.score);
+  late final List<String> ruled = ruledOut(probe);
+
+  /// The failing layer: the top-ranked cause when it is strong enough, else the first failing layer.
+  String? get layer => causes.isNotEmpty && causes.first.score >= 40 ? causes.first.cause.layer : baseLayer;
 
   int get problems => findings.where((f) => f.severity == 2).length;
   int get warnings => findings.where((f) => f.severity == 1).length;
@@ -107,7 +115,6 @@ class _Summary extends StatelessWidget {
       _ => (Icons.check_circle_rounded, teal, 'Healthy'),
     };
     final main = report.mainFinding;
-    final steps = report.layer == null ? null : layerSteps[report.layer];
     final tiles = <(String, String, bool)>[
       ('Status', p.status != null ? '${p.status}' : 'No reply', p.status == null || p.status! >= 500),
       ('DNS', p.dnsError != null ? 'Failed' : '${p.dnsMs ?? '-'} ms', p.dnsError != null),
@@ -155,16 +162,11 @@ class _Summary extends StatelessWidget {
           ),
         ]),
       ),
-      if (main != null) ...[
-        _heading('PRIMARY ISSUE'),
+      if (report.state != 'healthy')
+        _RootCauseSection(report: report)
+      else if (main != null) ...[
+        _heading('NOTE'),
         ErrorCard(finding: main, collapsible: false),
-      ] else if (steps != null) ...[
-        _heading('WHAT TO TRY'),
-        _panel(child: _Steps(steps)),
-      ],
-      if (report.possible.where((x) => x != main).isNotEmpty) ...[
-        _heading('ALSO POSSIBLE'),
-        for (final x in report.possible.where((x) => x != main).take(2)) ErrorCard(finding: x),
       ],
       _heading('KEY NUMBERS'),
       GridView.count(
@@ -218,7 +220,8 @@ class _Summary extends StatelessWidget {
               icon: const Icon(Icons.copy_rounded, size: 18),
               label: const Text('Copy report'),
               onPressed: () {
-                Clipboard.setData(ClipboardData(text: buildReport(p, report.findings, report.layer)));
+                Clipboard.setData(ClipboardData(
+                    text: buildReport(p, report.findings, report.layer) + causesText(report.causes, report.ruled)));
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report copied')));
               },
             ),
@@ -502,5 +505,138 @@ class _Network extends StatelessWidget {
         ),
       ],
     ]);
+  }
+}
+
+
+class _RootCauseSection extends StatelessWidget {
+  const _RootCauseSection({required this.report});
+  final Report report;
+
+  @override
+  Widget build(BuildContext context) {
+    final causes = report.causes;
+    final top = causes.isEmpty ? null : causes.first;
+    final strong = top != null && top.score >= 35;
+    final accent = report.state == 'down' ? red : amber;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _heading('Root cause'),
+      if (!strong)
+        _panel(
+          border: muted,
+          child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('No single cause stands out', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            SizedBox(height: 6),
+            Text(
+                'The outside view found a problem but not enough evidence to name one cause. Check the server logs, or connect Sentry (optional) to see the actual error.',
+                style: TextStyle(color: muted, height: 1.4)),
+          ]),
+        )
+      else
+        CauseCard(rc: top, accent: accent, collapsible: false),
+      if (strong && causes.length > 1) ...[
+        _heading('Other possible causes'),
+        for (final c in causes.skip(1).where((c) => c.score >= 25).take(4)) CauseCard(rc: c, accent: sevColor(1)),
+      ],
+      if (report.ruled.isNotEmpty) ...[
+        _heading('Ruled out'),
+        _panel(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final r in report.ruled)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [
+                  const Icon(Icons.check_rounded, color: teal, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(r, style: const TextStyle(fontSize: 14))),
+                ]),
+              ),
+          ]),
+        ),
+      ],
+      const SizedBox(height: 10),
+      const Text(
+          'Ranked from outside evidence. Only your logs or Sentry can prove the cause, so confirm before acting.',
+          style: TextStyle(color: muted, fontSize: 13, height: 1.4)),
+    ]);
+  }
+}
+
+class CauseCard extends StatelessWidget {
+  const CauseCard({super.key, required this.rc, required this.accent, this.collapsible = true});
+  final RootCause rc;
+  final Color accent;
+  final bool collapsible;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = rc.cause;
+    final conf = rc.confidence == 2 ? teal : (rc.confidence == 1 ? blue : muted);
+    Widget chip(String t, Color col) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: ShapeDecoration(color: col.withValues(alpha: 0.12), shape: cutShape(color: col.withValues(alpha: 0.5), cut: 6)),
+          child: Text(t, style: TextStyle(color: col, fontSize: 12, fontFamily: kMono)),
+        );
+    final header = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(c.title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: collapsible ? 16 : 20, height: 1.2)),
+      const SizedBox(height: 8),
+      Wrap(spacing: 6, runSpacing: 6, children: [
+        chip('${confName(rc.confidence)} ${rc.score}%', conf),
+        chip(c.layer, muted),
+      ]),
+      const SizedBox(height: 10),
+      LinearProgressIndicator(value: rc.score / 100, minHeight: 3, color: conf, backgroundColor: line),
+    ]);
+    final body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const SizedBox(height: 12),
+      Text(c.why, style: const TextStyle(fontSize: 14, height: 1.4)),
+      if (rc.support.isNotEmpty) ...[
+        _mini('EVIDENCE'),
+        for (final s in rc.support)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Padding(padding: EdgeInsets.only(top: 3), child: Icon(Icons.add_rounded, color: teal, size: 16)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(s, style: const TextStyle(fontSize: 13, height: 1.35, fontFamily: kMono))),
+            ]),
+          ),
+      ],
+      if (rc.against.isNotEmpty) ...[
+        _mini('WEIGHING AGAINST'),
+        for (final s in rc.against)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Padding(padding: EdgeInsets.only(top: 3), child: Icon(Icons.remove_rounded, color: amber, size: 16)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(s, style: const TextStyle(fontSize: 13, height: 1.35, color: muted))),
+            ]),
+          ),
+      ],
+      if (c.fixes.isNotEmpty) ...[
+        _mini('HOW TO FIX'),
+        _Steps(c.fixes),
+      ],
+    ]);
+    if (!collapsible) {
+      return NeonPanel(accent: accent, glow: true, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [header, body]));
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: ShapeDecoration(color: card, shape: cutShape(color: line, cut: 12)),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          shape: const Border(),
+          collapsedShape: const Border(),
+          tilePadding: const EdgeInsets.all(14),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          title: header,
+          children: [body],
+        ),
+      ),
+    );
   }
 }

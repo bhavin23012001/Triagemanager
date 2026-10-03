@@ -67,7 +67,7 @@ Future<AuditResult?> auditAssets(Uri base, String html) async {
     final sw = Stopwatch()..start();
     try {
       final req = await client.getUrl(u);
-      req.headers.set('user-agent', 'TriageAgent/0.3');
+      req.headers.set('user-agent', 'PingR/0.5');
       final resp = await req.close().timeout(const Duration(seconds: 8));
       await resp.drain<void>().timeout(const Duration(seconds: 8));
       final code = resp.statusCode;

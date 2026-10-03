@@ -36,6 +36,11 @@ class ProbeResult {
   final List<String> redirects = [];
   final List<int?> repeats = [];
   final Map<String, int?> companions = {};
+  // Extra evidence used by the root-cause engine.
+  int? browserStatus; // same URL fetched with a browser user agent
+  String? altHost; // www <-> apex counterpart
+  int? altStatus;
+  final Map<String, int?> ipStatus = {}; // HTTP status when talking to each IP directly
 
   bool get failed =>
       dnsError != null ||
@@ -126,7 +131,7 @@ class Prober {
       for (var hop = 0; hop < 6; hop++) {
         final req = await client.getUrl(current);
         req.followRedirects = false;
-        req.headers.set('user-agent', 'TriageAgent/0.3');
+        req.headers.set('user-agent', 'PingR/0.5');
         resp = await req.close().timeout(timeout);
         final loc = resp.headers.value('location');
         if (resp.isRedirect && loc != null) {
@@ -190,9 +195,40 @@ class Prober {
         .where((p) => p != uri.path && !(p == '/' && uri.path.isEmpty))
         .toList();
     final reps = Future.wait([_once(uri), _once(uri)]);
+    final browserF = (r.status != null && const [401, 403, 406, 429, 503].contains(r.status))
+        ? _once(uri, ua: _browserUa)
+        : Future<int?>.value(null);
+    final host = uri.host;
+    final isIp = InternetAddress.tryParse(host) != null;
+    String? alt;
+    if (!isIp) {
+      if (host.startsWith('www.')) {
+        alt = host.substring(4);
+      } else if (host.split('.').length == 2) {
+        alt = 'www.$host';
+      }
+    }
+    r.altHost = alt;
+    final altF = alt == null
+        ? Future<int?>.value(null)
+        : _once(Uri(
+            scheme: uri.scheme,
+            host: alt,
+            port: uri.hasPort ? uri.port : null,
+            path: uri.path,
+            query: uri.hasQuery ? uri.query : null));
+    final Future<List<MapEntry<String, int?>>> ipF = r.addrs.length > 1
+        ? Future.wait(r.addrs.take(4).where((a) => r.ipMs[a.address] != null).map((a) async =>
+            MapEntry<String, int?>(a.address, await _viaIp(uri, a, port))))
+        : Future<List<MapEntry<String, int?>>>.value(<MapEntry<String, int?>>[]);
     final comps = Future.wait(paths.map((p) => _once(_base(uri, p))));
     r.audit = await auditF;
     r.repeats.addAll(await reps);
+    r.browserStatus = await browserF;
+    r.altStatus = await altF;
+    for (final e in await ipF) {
+      r.ipStatus[e.key] = e.value;
+    }
     final res = await comps;
     for (var i = 0; i < paths.length; i++) {
       r.companions[paths[i]] = res[i];
@@ -222,10 +258,31 @@ class Prober {
         path: path,
       );
 
-  static Future<int?> _once(Uri uri) async {
+  static const _browserUa =
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
+
+  /// Requests [uri] by connecting straight to [ip] (TLS still checks the real hostname).
+  static Future<int?> _viaIp(Uri uri, InternetAddress ip, int port) async {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    c.connectionFactory = (Uri u, String? proxyHost, int? proxyPort) => Socket.startConnect(ip, port);
+    try {
+      final req = await c.getUrl(uri);
+      req.followRedirects = false;
+      final resp = await req.close().timeout(const Duration(seconds: 10));
+      await resp.drain<void>().timeout(const Duration(seconds: 10));
+      return resp.statusCode;
+    } catch (_) {
+      return null;
+    } finally {
+      c.close(force: true);
+    }
+  }
+
+  static Future<int?> _once(Uri uri, {String? ua}) async {
     final c = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
       final req = await c.getUrl(uri);
+      if (ua != null) req.headers.set('user-agent', ua);
       final resp = await req.close().timeout(const Duration(seconds: 10));
       await resp.drain<void>().timeout(const Duration(seconds: 10));
       return resp.statusCode;

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'probe.dart';
+import 'signatures.dart';
 
 class Finding {
   Finding(this.severity, this.title,
@@ -16,7 +17,7 @@ class Finding {
 
 String confName(int c) => c == 2 ? 'Confirmed' : (c == 1 ? 'Likely' : 'Possible');
 
-String _snippet(String raw, int idx, int len) {
+String snippet(String raw, int idx, int len) {
   if (idx < 0 || idx >= raw.length) return '';
   final a = idx - 60 < 0 ? 0 : idx - 60;
   final b = idx + len + 80 > raw.length ? raw.length : idx + len + 80;
@@ -101,86 +102,6 @@ const _cloudflare = <int, (String, String)>{
   530: ('Cloudflare could not resolve or reach the origin. Often an origin DNS problem.', 'DNS'),
 };
 
-// lowercase pattern, severity, title, detail, layer
-const _sigs = <(String, int, String, String, String)>[
-  // Databases and dependencies
-  ('error establishing a database connection', 2, 'WordPress cannot reach its database', 'MySQL is down, overloaded or the credentials changed.', 'Database / dependency'),
-  ('sqlstate', 2, 'SQL error in the response', 'A database query failed. Check the query and database health.', 'Database / dependency'),
-  ('could not connect to server', 2, 'Database connection failed', 'The app could not open a connection to its database.', 'Database / dependency'),
-  ('too many connections', 2, 'Database connection limit reached', 'Pool or server max connections exhausted. Close leaks or raise limits.', 'Database / dependency'),
-  ('pooltimeout', 2, 'Connection pool exhausted', 'All pooled connections are busy. Look for slow queries or leaks.', 'Database / dependency'),
-  ('mysql server has gone away', 2, 'MySQL connection dropped', 'The server closed an idle or oversized connection.', 'Database / dependency'),
-  ('lock wait timeout exceeded', 2, 'Database lock timeout', 'A long transaction is blocking others.', 'Database / dependency'),
-  ('deadlock found', 2, 'Database deadlock', 'Two transactions blocked each other.', 'Database / dependency'),
-  ('mongoerror', 2, 'MongoDB error', 'The app failed talking to MongoDB.', 'Database / dependency'),
-  ('redis connection', 2, 'Redis connection problem', 'Redis is unreachable or its pool is exhausted.', 'Database / dependency'),
-  ('redis.exceptions', 2, 'Redis error', 'The Python Redis client raised an error.', 'Database / dependency'),
-  ("can't reach database server", 2, 'Prisma cannot reach the database', 'Check the database URL and that the server is up.', 'Database / dependency'),
-  ('econnrefused', 2, 'A backend refused a connection', 'A dependency (database, cache or API) is not accepting connections.', 'Database / dependency'),
-  // Application crashes
-  ('traceback (most recent call last)', 2, 'Python stack trace in response', 'Read the last line of the traceback for the exception.', 'Origin server'),
-  ('debug = true', 1, 'Django debug page exposed', 'DEBUG is on in production. The page may show the exception.', 'Origin server'),
-  ('whoops, looks like something went wrong', 2, 'Laravel error page', 'Unhandled PHP exception. Check storage/logs/laravel.log.', 'Origin server'),
-  ('whitelabel error page', 2, 'Spring Boot error page', 'An unhandled exception reached the default handler.', 'Origin server'),
-  ('fatal error:', 2, 'PHP fatal error', 'Check the PHP error log.', 'Origin server'),
-  ('parse error:', 2, 'PHP parse error', 'A syntax error in deployed code.', 'Origin server'),
-  ('allowed memory size', 2, 'PHP out of memory', 'Raise memory_limit or fix the leak.', 'Origin server'),
-  ('maximum execution time', 2, 'PHP script timed out', 'A request ran longer than max_execution_time.', 'Origin server'),
-  ('there has been a critical error on this website', 2, 'WordPress critical error', 'A plugin or theme crashed. Enable WP_DEBUG to see which.', 'Origin server'),
-  ('application error: a server-side exception has occurred', 2, 'Next.js server exception', 'Check server logs using the digest shown on the page.', 'Origin server'),
-  ("we're sorry, but something went wrong", 2, 'Rails error page', 'Check log/production.log.', 'Origin server'),
-  ("server error in '/' application", 2, 'ASP.NET unhandled error', 'Check the event log or enable custom errors detail.', 'Origin server'),
-  ('http error 500.', 2, 'IIS 500 error', 'The IIS site returned an error. See the sub-status code.', 'Origin server'),
-  ('http status 500', 2, 'Tomcat 500 error', 'Check catalina.out for the stack trace.', 'Origin server'),
-  ('nullpointerexception', 2, 'Java NullPointerException', 'Unhandled null in server code.', 'Origin server'),
-  ('java.lang.outofmemoryerror', 2, 'Java out of memory', 'Heap exhausted. Raise -Xmx or fix the leak.', 'Origin server'),
-  ('cannot find module', 2, 'Node module missing', 'A dependency was not installed in the deployment.', 'Origin server'),
-  ('typeerror:', 2, 'JavaScript TypeError on server', 'Unhandled error in Node code.', 'Origin server'),
-  ('referenceerror:', 2, 'JavaScript ReferenceError on server', 'Unhandled error in Node code.', 'Origin server'),
-  ('an error occurred in the application and your page could not be served', 2, 'Heroku application error', 'The dyno crashed or timed out. Run heroku logs --tail.', 'Origin server'),
-  ('application failed to respond', 2, 'Railway app not responding', 'The service crashed or listens on the wrong port.', 'Origin server'),
-  ('http response was malformed or connection to the instance had an error', 2, 'Cloud Run container failed', 'The container crashed or ignored the PORT variable.', 'Origin server'),
-  ('function_invocation_failed', 2, 'Vercel function crashed', 'Check function logs in the Vercel dashboard.', 'Origin server'),
-  ('function_invocation_timeout', 2, 'Vercel function timed out', 'The function exceeded its time limit.', 'Origin server'),
-  ('deployment_not_found', 2, 'Vercel deployment missing', 'The deployment was removed or the domain points to nothing.', 'Origin server'),
-  ('currently stopped', 2, 'Azure web app is stopped', 'Start the app service in the Azure portal.', 'Origin server'),
-  ("there isn't a github pages site here", 2, 'GitHub Pages site missing', 'Pages is not enabled or the build failed.', 'Origin server'),
-  ('account has been suspended', 2, 'Hosting account suspended', 'Contact the host: unpaid bill or abuse suspension.', 'Origin server'),
-  ('resource limit is reached', 2, 'Hosting resource limit hit', 'Shared hosting CPU or memory quota exceeded.', 'Origin server'),
-  ('bandwidth limit exceeded', 2, 'Bandwidth quota exceeded', 'The hosting plan transfer quota is used up.', 'Origin server'),
-  ('under maintenance', 1, 'Maintenance page', 'The site is deliberately offline.', 'Origin server'),
-  ('maintenance mode', 1, 'Maintenance mode', 'The site is deliberately offline.', 'Origin server'),
-  ('welcome to nginx!', 1, 'Default nginx page', 'The app is not deployed or the virtual host is misrouted.', 'Origin server'),
-  ('apache2 ubuntu default page', 1, 'Default Apache page', 'The app is not deployed or the virtual host is misrouted.', 'Origin server'),
-  ('this domain is for sale', 1, 'Parked domain', 'The domain is parked, expired or not pointed at your server.', 'DNS'),
-  ('domain parking', 1, 'Parked domain', 'The domain is parked, expired or not pointed at your server.', 'DNS'),
-  ('cannot get /', 1, 'Express route not found', 'The Node app is up but has no route for this path.', 'Origin server'),
-  // Proxies and load balancers
-  ('upstream connect error or disconnect/reset before headers', 2, 'Envoy/Istio cannot reach the service', 'The pod is down, restarting or refusing connections.', 'Proxy / load balancer'),
-  ('no healthy upstream', 2, 'No healthy backends', 'All backends failed health checks.', 'Proxy / load balancer'),
-  ('upstream request timeout', 2, 'Proxy timed out waiting for the app', 'The app is slow or hung.', 'Proxy / load balancer'),
-  ('while connecting to upstream', 2, 'nginx cannot connect to upstream', 'The app process is down or listens elsewhere.', 'Proxy / load balancer'),
-  ('upstream timed out', 2, 'nginx upstream timeout', 'The app took longer than proxy_read_timeout.', 'Proxy / load balancer'),
-  ('upstream prematurely closed connection', 2, 'App closed the connection early', 'The app crashed mid-request.', 'Proxy / load balancer'),
-  ('default backend - 404', 2, 'Kubernetes ingress has no matching route', 'Check the Ingress host, path and service.', 'Proxy / load balancer'),
-  ('no server is available to handle this request', 2, 'HAProxy has no live backend', 'All servers in the pool are down.', 'Proxy / load balancer'),
-  ('invalid response from an upstream server', 2, 'Apache proxy got an invalid reply', 'The backend returned something malformed or crashed.', 'Proxy / load balancer'),
-  ('guru meditation', 2, 'Varnish backend failure', 'Varnish could not get a response from the backend.', 'Proxy / load balancer'),
-  // Firewalls and bot protection
-  ('attention required! | cloudflare', 1, 'Cloudflare blocked the probe', 'This is a challenge, not an outage. Real users may be fine.', 'Firewall / bot protection'),
-  ('just a moment...', 1, 'Cloudflare browser challenge', 'The probe cannot pass this check.', 'Firewall / bot protection'),
-  ('error 1020', 1, 'Cloudflare firewall rule blocked access', 'A WAF rule matched this request.', 'Firewall / bot protection'),
-  ('error 1015', 1, 'Cloudflare rate limit hit', 'Too many requests from this IP.', 'Firewall / bot protection'),
-  ('error 1010', 1, 'Cloudflare blocked the browser signature', 'The client was flagged as automated.', 'Firewall / bot protection'),
-  ('error 1033', 2, 'Cloudflare Tunnel is down', 'The cloudflared connector is not running.', 'Origin server'),
-  ('error 1016', 2, 'Cloudflare cannot resolve the origin', 'The origin DNS record is wrong or missing.', 'DNS'),
-  ('error 1101', 2, 'Cloudflare Worker threw an exception', 'Check the Worker logs.', 'Origin server'),
-  ('error 1102', 2, 'Cloudflare Worker exceeded resource limits', 'CPU or memory limit hit.', 'Origin server'),
-  ('errors.edgesuite.net', 1, 'Akamai blocked the request', 'Access denied by the CDN edge.', 'Firewall / bot protection'),
-  ('incapsula incident', 1, 'Imperva blocked the request', 'Access denied by the WAF.', 'Firewall / bot protection'),
-  ('sucuri website firewall', 1, 'Sucuri blocked the request', 'Access denied by the WAF.', 'Firewall / bot protection'),
-  ('captcha', 1, 'CAPTCHA challenge', 'Bot protection is challenging the probe.', 'Firewall / bot protection'),
-];
 
 String timingLine(ProbeResult p) {
   final parts = <String>[];
@@ -330,9 +251,9 @@ List<Finding> inspect(ProbeResult p) {
 
   // ---- Body signatures ----
   var hits = 0;
-  for (final (pat, sev, title, detail, layer) in _sigs) {
+  for (final (pat, sev, title, detail, layer) in kSignatures) {
     if (hits < 4 && body.contains(pat)) {
-      f.add(Finding(sev, title, detail, layer, 'Response body contains: "${_snippet(p.body, body.indexOf(pat), pat.length)}"', 2));
+      f.add(Finding(sev, title, detail, layer, 'Response body contains: "${snippet(p.body, body.indexOf(pat), pat.length)}"', 2));
       hits++;
     }
   }
@@ -411,6 +332,43 @@ List<Finding> inspect(ProbeResult p) {
         ]));
   }
 
+  // ---- Direct-to-IP, browser and hostname cross-checks ----
+  if (p.ipStatus.length > 1) {
+    final bad = p.ipStatus.entries.where((e) => e.value == null || e.value! >= 500).toList();
+    final good = p.ipStatus.entries.where((e) => e.value != null && e.value! < 500).toList();
+    if (bad.isNotEmpty && good.isNotEmpty) {
+      f.add(Finding(
+          2,
+          'One server behind the name is unhealthy',
+          'Asked directly, ${bad.length} of ${p.ipStatus.length} addresses fail while the others answer. Users hit the bad one at random.',
+          'Origin server',
+          p.ipStatus.entries.map((e) => '${e.key} -> ${e.value ?? 'no reply'}').join('\n'),
+          2,
+          ['Remove the failing instance from the load balancer or DNS.', 'Read that instance\'s logs and restart or redeploy it.', 'Compare its config and version with a healthy instance.']));
+    }
+  }
+  if (s != null && s >= 400 && p.browserStatus != null && p.browserStatus! < 400) {
+    f.add(Finding(
+        1,
+        'Blocked unless the request looks like a browser',
+        'The URL returns $s to this probe but ${p.browserStatus} to a browser user agent. A firewall or bot rule is rejecting automated clients; real users are probably fine.',
+        'Firewall / bot protection',
+        'probe user agent -> $s; browser user agent -> ${p.browserStatus}',
+        2));
+  }
+  if (p.altHost != null && p.altStatus != null && s != null) {
+    final altOk = p.altStatus! < 400;
+    if (s >= 500 && altOk) {
+      f.add(Finding(
+          1,
+          'The other hostname works',
+          '${p.altHost} answers ${p.altStatus} while ${p.url.host} fails. The fault is tied to this hostname: its DNS record, virtual host or proxy rule.',
+          'Proxy / load balancer',
+          '${p.url.host} -> $s; ${p.altHost} -> ${p.altStatus}',
+          1));
+    }
+  }
+
   // ---- Repeats ----
   if (p.repeats.length > 1) {
     final bad = p.repeats.where((x) => x == null || x >= 500).length;
@@ -457,7 +415,7 @@ List<Finding> inspect(ProbeResult p) {
 
 String buildReport(ProbeResult p, List<Finding> f, String? layer) {
   final b = StringBuffer()
-    ..writeln('Triage report')
+    ..writeln('PingR report')
     ..writeln('URL: ${p.url}')
     ..writeln('Time: ${p.at.toIso8601String()}')
     ..writeln('Result: ${p.headline}')

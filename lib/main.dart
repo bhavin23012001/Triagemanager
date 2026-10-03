@@ -17,13 +17,13 @@ const blue = Color(0xFF6EA8FF);
 const red = Color(0xFFFF3D71);
 const violet = Color(0xFF9B6BFF);
 
-void main() => runApp(const TriageApp());
+void main() => runApp(const PingRApp());
 
-class TriageApp extends StatelessWidget {
-  const TriageApp({super.key});
+class PingRApp extends StatelessWidget {
+  const PingRApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Triage Manager',
+        title: 'PingR',
         debugShowCheckedModeBanner: false,
         theme: _theme(),
         home: const HomeScreen(),
@@ -227,12 +227,12 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Row(children: [
           const Icon(Icons.radar_rounded, color: teal),
           const SizedBox(width: 10),
-          const Text('Triage', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+          const Text('PingR', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1.5)),
           const SizedBox(width: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: ShapeDecoration(shape: cutShape(color: teal.withValues(alpha: 0.6), cut: 6)),
-            child: const Text('v0.4', style: TextStyle(fontFamily: kMono, fontSize: 12, color: teal)),
+            child: const Text('v0.5', style: TextStyle(fontFamily: kMono, fontSize: 12, color: teal)),
           ),
         ]),
         actions: [
