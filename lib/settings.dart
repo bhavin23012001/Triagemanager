@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'main.dart' show muted, neonField;
 
 class Settings {
   String sentryToken = '', sentryOrg = '', sentryProject = '', ghRepo = '', ghToken = '';
@@ -61,7 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Backend correlation')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         const Text('Optional. The app works fully without these. Add read-only Sentry or GitHub details only if you want failures linked to backend errors and recent commits.',
-            style: TextStyle(color: Color(0xFF9AA7B5))),
+            style: TextStyle(color: muted, height: 1.4)),
         const SizedBox(height: 16),
         for (final e in c.entries)
           Padding(
@@ -69,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: TextField(
               controller: e.value,
               obscureText: e.key.contains('token'),
-              decoration: InputDecoration(labelText: e.key, border: const OutlineInputBorder()),
+              decoration: neonField(label: e.key),
             ),
           ),
         SizedBox(height: 48, child: FilledButton(onPressed: _save, child: const Text('Save'))),

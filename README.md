@@ -1,4 +1,4 @@
-# Triage Agent (Flutter)
+# Triage Manager (Flutter)
 
 Probes a URL from the device (DNS, TLS expiry, HTTP status, TTFB), then correlates a failure with
 Sentry issues and recent GitHub commits. Tap **Demo** to explore the UI without credentials.

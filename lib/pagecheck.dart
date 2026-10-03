@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'main.dart' show card, muted, amber, teal;
+import 'ui.dart';
 
 const _hook = r"""
 (function(){if(window.__tri)return;window.__tri=1;
@@ -70,10 +71,10 @@ class _PageCheckScreenState extends State<PageCheckScreen> {
         Padding(
           padding: const EdgeInsets.all(16),
           child: Row(children: [
-            Text(done ? 'LOADED' : 'LOADING...',
-                style: TextStyle(color: done ? teal : amber, fontSize: 12, fontWeight: FontWeight.w600)),
+            Text(done ? 'Loaded' : 'Loading...',
+                style: TextStyle(color: done ? teal : amber, fontSize: 14, fontFamily: kMono)),
             const SizedBox(width: 8),
-            Text('${events.length} issue(s)', style: const TextStyle(color: muted, fontSize: 12)),
+            Text('${events.length} issue(s)', style: const TextStyle(color: muted, fontSize: 14, fontFamily: kMono)),
           ]),
         ),
         Expanded(
@@ -91,8 +92,8 @@ class _PageCheckScreenState extends State<PageCheckScreen> {
                     Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(12)),
-                      child: Text(e, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                      decoration: ShapeDecoration(color: card, shape: cutShape(cut: 10)),
+                      child: Text(e, style: const TextStyle(fontFamily: kMono, fontSize: 13)),
                     ),
                 ]),
         ),

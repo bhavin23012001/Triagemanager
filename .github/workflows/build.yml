@@ -18,10 +18,11 @@ jobs:
       - run: flutter create . --project-name triage_agent --platforms=android
       - run: |
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application android:usesCleartextTraffic="true"#' android/app/src/main/AndroidManifest.xml
-          sed -i 's#android:label="triage_agent"#android:label="Triage Agent"#' android/app/src/main/AndroidManifest.xml
+          sed -i 's#android:label="triage_agent"#android:label="Triage Manager"#' android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
+      - run: dart run flutter_launcher_icons
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
-          name: triage-agent-apk
+          name: triage-manager-apk
           path: build/app/outputs/flutter-apk/app-release.apk

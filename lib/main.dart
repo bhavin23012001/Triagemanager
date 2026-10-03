@@ -5,15 +5,17 @@ import 'inspector.dart';
 import 'probe.dart';
 import 'result_view.dart';
 import 'settings.dart';
+import 'ui.dart';
 
-const bg = Color(0xFF0D1117);
-const card = Color(0xFF151B23);
-const line = Color(0xFF262E39);
-const muted = Color(0xFF93A1B0);
-const amber = Color(0xFFF2B04A);
-const teal = Color(0xFF4FD6B0);
-const blue = Color(0xFF7FB5FF);
-const red = Color(0xFFFF7B72);
+const bg = Color(0xFF04060C);
+const card = Color(0xFF0A1020);
+const line = Color(0xFF1B2A44);
+const muted = Color(0xFF7E92B2);
+const amber = Color(0xFFFFB020);
+const teal = Color(0xFF00E5FF);
+const blue = Color(0xFF6EA8FF);
+const red = Color(0xFFFF3D71);
+const violet = Color(0xFF9B6BFF);
 
 void main() => runApp(const TriageApp());
 
@@ -21,17 +23,74 @@ class TriageApp extends StatelessWidget {
   const TriageApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Triage',
+        title: 'Triage Manager',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark(useMaterial3: true).copyWith(
-          scaffoldBackgroundColor: bg,
-          colorScheme: const ColorScheme.dark(primary: teal, surface: bg),
-          appBarTheme: const AppBarTheme(backgroundColor: bg, elevation: 0, scrolledUnderElevation: 0),
-          dividerColor: line,
-          snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
-        ),
+        theme: _theme(),
         home: const HomeScreen(),
       );
+}
+
+ThemeData _theme() {
+  final base = ThemeData.dark(useMaterial3: true);
+  final text = base.textTheme.apply(fontFamily: 'Chakra', bodyColor: const Color(0xFFE6F1FF), displayColor: const Color(0xFFE6F1FF));
+  final cut = BeveledRectangleBorder(
+      borderRadius: const BorderRadius.only(topLeft: Radius.circular(10), bottomRight: Radius.circular(10)),
+      side: BorderSide(color: teal.withValues(alpha: 0.7)));
+  return base.copyWith(
+    scaffoldBackgroundColor: bg,
+    textTheme: text,
+    primaryTextTheme: text,
+    colorScheme: const ColorScheme.dark(primary: teal, secondary: violet, surface: bg, error: red),
+    appBarTheme: AppBarTheme(
+      backgroundColor: bg,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      centerTitle: false,
+      titleTextStyle: const TextStyle(fontFamily: 'Chakra', fontSize: 20, fontWeight: FontWeight.w700, color: Color(0xFFE6F1FF)),
+    ),
+    dividerColor: line,
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: teal,
+        foregroundColor: const Color(0xFF00161B),
+        shape: cut,
+        textStyle: const TextStyle(fontFamily: 'Chakra', fontWeight: FontWeight.w700, fontSize: 15),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: teal,
+        shape: cut,
+        side: BorderSide.none,
+        textStyle: const TextStyle(fontFamily: 'Chakra', fontWeight: FontWeight.w600, fontSize: 14),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: teal)),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: card,
+      contentTextStyle: const TextStyle(fontFamily: 'Chakra', color: Color(0xFFE6F1FF)),
+      shape: cutShape(color: teal.withValues(alpha: 0.6), cut: 10),
+    ),
+  );
+}
+
+/// Shared text-field decoration so inputs match the cut-corner look.
+InputDecoration neonField({String? label, String? hint, Widget? prefix}) {
+  OutlineInputBorder b(Color c) => OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c));
+  return InputDecoration(
+    labelText: label,
+    hintText: hint,
+    prefixIcon: prefix,
+    filled: true,
+    fillColor: card,
+    labelStyle: const TextStyle(color: muted),
+    hintStyle: const TextStyle(color: muted, fontFamily: kMono),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+    border: b(line),
+    enabledBorder: b(line),
+    focusedBorder: b(teal),
+  );
 }
 
 class HomeScreen extends StatefulWidget {
@@ -112,30 +171,50 @@ class _HomeScreenState extends State<HomeScreen> {
   void _settings() => Navigator.push(
       context, MaterialPageRoute(builder: (_) => SettingsScreen(settings: settings)));
 
-  Widget _empty() => ListView(padding: const EdgeInsets.all(24), children: [
-        const SizedBox(height: 24),
-        const Icon(Icons.travel_explore_rounded, size: 56, color: teal),
-        const SizedBox(height: 16),
-        const Text('Find out why a site is failing',
-            textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
+  Widget _empty() => ListView(padding: const EdgeInsets.fromLTRB(24, 16, 24, 24), children: [
+        Center(child: RadarScanner(active: busy)),
+        const SizedBox(height: 20),
+        Text(busy ? '${stage ?? 'Working'}' : 'Find out why a site is failing',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700, height: 1.15)),
+        const SizedBox(height: 10),
         const Text(
             'Checks DNS, every server behind the name, the certificate, the response, health endpoints and page files. No account needed.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: muted, height: 1.4)),
-        const SizedBox(height: 16),
-        Center(child: OutlinedButton(onPressed: _demo, child: const Text('See an example'))),
+            style: TextStyle(color: muted, height: 1.45)),
+        const SizedBox(height: 18),
+        Center(child: OutlinedButton(onPressed: busy ? null : _demo, child: const Text('See an example'))),
         if (recent.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          const Text('RECENT', style: TextStyle(color: muted, fontSize: 12, letterSpacing: 1, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
+          const SizedBox(height: 28),
+          Row(children: [
+            Container(width: 3, height: 14, color: teal),
+            const SizedBox(width: 8),
+            const Text('Recent checks', style: TextStyle(color: muted, fontSize: 14, fontWeight: FontWeight.w600)),
+          ]),
+          const SizedBox(height: 8),
           for (final e in recent)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.history_rounded, color: muted),
-              title: Text(e.split('\t').first, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(e.split('\t').last, style: const TextStyle(color: muted)),
-              onTap: () => _run(e.split('\t').first),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: InkWell(
+                customBorder: cutShape(cut: 10),
+                onTap: () => _run(e.split('\t').first),
+                child: NeonPanel(
+                  cut: 10,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(children: [
+                    const Icon(Icons.history_rounded, color: muted, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(e.split('\t').first,
+                            maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: kMono, fontSize: 14)),
+                        const SizedBox(height: 2),
+                        Text(e.split('\t').last, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: muted, fontSize: 13)),
+                      ]),
+                    ),
+                  ]),
+                ),
+              ),
             ),
         ],
       ]);
@@ -145,73 +224,69 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
-        title: const Row(children: [
-          Icon(Icons.radar_rounded, color: teal),
-          SizedBox(width: 8),
-          Text('Triage', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Row(children: [
+          const Icon(Icons.radar_rounded, color: teal),
+          const SizedBox(width: 10),
+          const Text('Triage', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: ShapeDecoration(shape: cutShape(color: teal.withValues(alpha: 0.6), cut: 6)),
+            child: const Text('v0.4', style: TextStyle(fontFamily: kMono, fontSize: 12, color: teal)),
+          ),
         ]),
         actions: [
           IconButton(
               tooltip: 'Optional backend settings', icon: const Icon(Icons.tune_rounded), onPressed: _settings),
         ],
       ),
-      body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            child: Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: url,
-                  keyboardType: TextInputType.url,
-                  textInputAction: TextInputAction.go,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  onSubmitted: (_) => _run(),
-                  decoration: InputDecoration(
-                    hintText: 'api.example.com/checkout',
-                    prefixIcon: const Icon(Icons.link_rounded),
-                    filled: true,
-                    fillColor: card,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: line)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: line)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: teal)),
+      body: GridBackdrop(
+        child: SafeArea(
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: url,
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.go,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    style: const TextStyle(fontFamily: kMono, fontSize: 15),
+                    onSubmitted: (_) => _run(),
+                    decoration: neonField(hint: 'api.example.com/checkout', prefix: const Icon(Icons.link_rounded, color: teal)),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 54,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                      backgroundColor: teal,
-                      foregroundColor: const Color(0xFF06231B),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                  onPressed: busy ? null : _run,
-                  child: Text(report == null ? 'Check' : 'Re-check', style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 54,
+                  child: FilledButton(
+                    onPressed: busy ? null : _run,
+                    child: Text(report == null ? 'Scan' : 'Re-scan'),
+                  ),
                 ),
+              ]),
+            ),
+            if (busy) ...[
+              const LinearProgressIndicator(minHeight: 2, color: teal, backgroundColor: line),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text('${stage ?? 'Working'}...', style: const TextStyle(color: teal, fontFamily: kMono, fontSize: 13)),
               ),
-            ]),
-          ),
-          if (busy) ...[
-            const LinearProgressIndicator(minHeight: 2, color: teal, backgroundColor: line),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text('${stage ?? 'Working'}...', style: const TextStyle(color: muted, fontSize: 13)),
+            ],
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(error!, style: const TextStyle(color: red)),
+              ),
+            Expanded(
+              child: report == null
+                  ? _empty()
+                  : ResultView(report: report!, onOpenSettings: _settings),
             ),
-          ],
-          if (error != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(error!, style: const TextStyle(color: red)),
-            ),
-          Expanded(
-            child: report == null
-                ? _empty()
-                : ResultView(report: report!, onOpenSettings: _settings),
-          ),
-        ]),
+          ]),
+        ),
       ),
     );
   }

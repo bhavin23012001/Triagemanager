@@ -1,7 +1,7 @@
 name: triage_agent
 description: On-call triage agent. Probes a URL and correlates failures with Sentry errors and GitHub commits.
 publish_to: none
-version: 0.3.0+3
+version: 0.4.0+4
 environment:
   sdk: ">=3.3.0 <4.0.0"
 dependencies:
@@ -10,5 +10,27 @@ dependencies:
   http: ^1.2.0
   shared_preferences: ^2.2.0
   webview_flutter: ^4.10.0
+dev_dependencies:
+  flutter_launcher_icons: ^0.14.1
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon/icon.png
+  adaptive_icon_background: "#04060C"
+  adaptive_icon_foreground: assets/icon/icon_fg.png
 flutter:
   uses-material-design: true
+  fonts:
+    - family: Chakra
+      fonts:
+        - asset: assets/fonts/ChakraPetch-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/ChakraPetch-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/ChakraPetch-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/ChakraPetch-Bold.ttf
+          weight: 700
+    - family: TechMono
+      fonts:
+        - asset: assets/fonts/ShareTechMono-Regular.ttf

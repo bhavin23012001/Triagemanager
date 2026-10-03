@@ -3,11 +3,25 @@ import 'dart:io';
 import 'probe.dart';
 
 class Finding {
-  Finding(this.severity, this.title, [this.detail = '', this.layer]);
+  Finding(this.severity, this.title,
+      [this.detail = '', this.layer, this.evidence, this.confidence = 2, this.fixes]);
   final int severity; // 0 info, 1 warning, 2 problem
   final String title;
   final String detail;
   final String? layer;
+  final String? evidence; // what the probe actually saw
+  final int confidence; // 0 possible, 1 likely, 2 confirmed
+  final List<String>? fixes;
+}
+
+String confName(int c) => c == 2 ? 'Confirmed' : (c == 1 ? 'Likely' : 'Possible');
+
+String _snippet(String raw, int idx, int len) {
+  if (idx < 0 || idx >= raw.length) return '';
+  final a = idx - 60 < 0 ? 0 : idx - 60;
+  final b = idx + len + 80 > raw.length ? raw.length : idx + len + 80;
+  final s = raw.substring(a, b).replaceAll(RegExp(r'<[^>]*>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  return s.length > 160 ? s.substring(0, 160) : s;
 }
 
 const _priority = [
@@ -38,9 +52,11 @@ const layerSteps = <String, List<String>>{
 
 /// The earliest failing layer on the request path, preferring the most specific cause.
 String? verdict(List<Finding> f) {
-  for (final sev in [2, 1]) {
-    for (final l in _priority) {
-      if (f.any((x) => x.severity == sev && x.layer == l)) return l;
+  for (final minConf in [1, 0]) {
+    for (final sev in [2, 1]) {
+      for (final l in _priority) {
+        if (f.any((x) => x.severity == sev && x.layer == l && x.confidence >= minConf)) return l;
+      }
     }
   }
   return null;
@@ -287,9 +303,11 @@ List<Finding> inspect(ProbeResult p) {
     final cf = _cloudflare[s];
     final st = _status[s];
     if (cf != null && p.cdn == 'Cloudflare') {
-      f.add(Finding(2, 'Cloudflare error $s', cf.$1, cf.$2));
+      f.add(Finding(2, 'Cloudflare error $s', cf.$1, cf.$2, 'HTTP $s with a Cloudflare cf-ray header', 2));
     } else if (st != null) {
-      f.add(Finding(s >= 500 ? 2 : 1, '$s ${st.$1}', st.$2, st.$3));
+      f.add(Finding(s >= 500 ? 2 : 1, '$s ${st.$1}', st.$2, st.$3,
+          'HTTP $s${p.reason != null ? ' ${p.reason}' : ''}${p.server != null ? ' from ${p.server}' : ''}',
+          s >= 500 ? 1 : 2));
     } else if (s >= 500) {
       f.add(Finding(2, 'Server error $s', 'The server reported an error.', 'Origin server'));
     }
@@ -314,7 +332,7 @@ List<Finding> inspect(ProbeResult p) {
   var hits = 0;
   for (final (pat, sev, title, detail, layer) in _sigs) {
     if (hits < 4 && body.contains(pat)) {
-      f.add(Finding(sev, title, detail, layer));
+      f.add(Finding(sev, title, detail, layer, 'Response body contains: "${_snippet(p.body, body.indexOf(pat), pat.length)}"', 2));
       hits++;
     }
   }
@@ -370,6 +388,27 @@ List<Finding> inspect(ProbeResult p) {
     } else if (c != null && c >= 500) {
       f.add(Finding(2, 'Health check $path returns $c', 'The app reports itself unhealthy.', 'Origin server'));
     }
+  }
+
+  // ---- Inferred: slow failure on one route while the rest of the site answers ----
+  final timedOut = (p.httpError ?? '').contains('Timed out');
+  final failing = (s != null && s >= 500) || timedOut;
+  if (failing && ((p.ttfbMs ?? 0) >= 5000 || timedOut) && root != null && root < 500) {
+    final t = p.ttfbMs != null ? 'First byte after ${(p.ttfbMs! / 1000).toStringAsFixed(1)}s' : 'No reply before the timeout';
+    f.add(Finding(
+        2,
+        'Possible dependency timeout (database or external API)',
+        'This route fails slowly while the rest of the site answers. That pattern usually means the route waits on a database query or another service and gives up. The outside view cannot see the query, so this is an inference.',
+        'Database / dependency',
+        '$t${s != null ? ', status $s' : ''}; the site root answers $root.',
+        0,
+        [
+          'Find the slowest query this route runs (slow query log, APM, EXPLAIN).',
+          'Check database connection pool usage and max connections.',
+          'Look for locks or long transactions at the time of failure.',
+          'Check any external API this route calls for latency or outages.',
+          'Add a query timeout, and an index if a table scan is the cause.',
+        ]));
   }
 
   // ---- Repeats ----
@@ -433,7 +472,8 @@ String buildReport(ProbeResult p, List<Finding> f, String? layer) {
   }
   b.writeln('\nFindings:');
   for (final x in f) {
-    b.writeln('- [${['info', 'warning', 'problem'][x.severity]}] ${x.title}${x.detail.isEmpty ? '' : ': ${x.detail.replaceAll('\n', ' ')}'}');
+    b.writeln('- [${['info', 'warning', 'problem'][x.severity]}, ${confName(x.confidence).toLowerCase()}] ${x.title}${x.detail.isEmpty ? '' : ': ${x.detail.replaceAll('\n', ' ')}'}');
+    if (x.evidence != null && x.evidence!.isNotEmpty) b.writeln('    saw: ${x.evidence}');
   }
   return b.toString();
 }
