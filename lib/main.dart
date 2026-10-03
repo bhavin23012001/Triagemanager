@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'correlator.dart';
 import 'evidence.dart';
+import 'inspector.dart';
+import 'pagecheck.dart';
 import 'probe.dart';
 import 'settings.dart';
 
@@ -39,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Settings settings = Settings();
   ProbeResult? probe;
   Diagnosis? diagnosis;
+  List<Finding> findings = [];
   bool busy = false;
 
   @override
@@ -52,12 +55,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => busy = true);
     final p = await Prober.run(url.text);
     final d = await Correlator(settings).diagnose(p);
-    if (mounted) setState(() { probe = p; diagnosis = d; busy = false; });
+    if (mounted) setState(() { probe = p; diagnosis = d; findings = inspect(p); busy = false; });
   }
 
   void _demo() {
     final (p, d) = Correlator.demo();
-    setState(() { url.text = p.url.toString(); probe = p; diagnosis = d; });
+    setState(() { url.text = p.url.toString(); probe = p; diagnosis = d; findings = inspect(p); });
   }
 
   Widget _check(String label, String value, {bool bad = false}) => Expanded(
@@ -143,6 +146,36 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 8),
             _check('Total', p.totalMs != null ? '${p.totalMs}ms' : '-'),
           ]),
+          const SizedBox(height: 16),
+          if (findings.isNotEmpty) ...[
+            const Text('FINDINGS', style: TextStyle(color: muted, fontSize: 12, letterSpacing: 1)),
+            const SizedBox(height: 8),
+            for (final f in findings)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(12)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${['INFO', 'WARNING', 'PROBLEM'][f.severity]}: ${f.title}',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: f.severity == 2 ? amber : (f.severity == 1 ? blue : null))),
+                  if (f.detail.isNotEmpty)
+                    Text(f.detail, style: const TextStyle(color: muted, fontSize: 13)),
+                ]),
+              ),
+            const SizedBox(height: 8),
+          ],
+          SizedBox(
+            height: 48,
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => PageCheckScreen(url: p.url.toString()))),
+              child: const Text('Check page for JavaScript errors'),
+            ),
+          ),
           const SizedBox(height: 16),
           const Text('CORRELATED TIMELINE', style: TextStyle(color: muted, fontSize: 12, letterSpacing: 1)),
           const SizedBox(height: 8),

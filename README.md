@@ -22,3 +22,6 @@ Sentry issues and recent GitHub commits. Tap **Demo** to explore the UI without 
 ## Limits
 The score is a timing-overlap heuristic, not proof. Public probing cannot see server internals; that
 is why the Sentry and GitHub integrations exist.
+
+## Deep inspect
+After a probe the app reads the response body and headers (Cloudflare 52x codes, framework error pages, rate limits, redirects), repeats the request 3x to spot intermittent failures, and can open the page in a WebView to capture JavaScript errors and failed resources. Page check relies on webview_flutter and is untested on device.

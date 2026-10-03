@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 class ProbeResult {
@@ -16,6 +17,10 @@ class ProbeResult {
   String? httpError;
   String? server;
   String? cdn;
+  final Map<String, String> headers = {};
+  String body = '';
+  final List<String> redirects = [];
+  final List<int?> repeats = [];
 
   bool get failed =>
       dnsError != null || tlsError != null || httpError != null || (status ?? 0) >= 500;
@@ -59,20 +64,46 @@ class Prober {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     sw = Stopwatch()..start();
     try {
-      final req = await client.getUrl(uri);
-      req.headers.set('user-agent', 'TriageAgent/0.1');
-      final resp = await req.close().timeout(timeout);
-      r.ttfbMs = sw.elapsedMilliseconds;
-      r.status = resp.statusCode;
-      r.reason = resp.reasonPhrase;
-      r.server = resp.headers.value('server');
-      if (resp.headers.value('cf-ray') != null) {
-        r.cdn = 'Cloudflare';
-      } else if (resp.headers.value('x-amz-cf-id') != null) {
-        r.cdn = 'CloudFront';
+      var current = uri;
+      HttpClientResponse? resp;
+      for (var hop = 0; hop < 6; hop++) {
+        final req = await client.getUrl(current);
+        req.followRedirects = false;
+        req.headers.set('user-agent', 'TriageAgent/0.1');
+        resp = await req.close().timeout(timeout);
+        final loc = resp.headers.value('location');
+        if (resp.isRedirect && loc != null) {
+          r.redirects.add('${resp.statusCode} -> $loc');
+          await resp.drain<void>().timeout(timeout);
+          if (hop == 5) {
+            r.httpError = 'Too many redirects (possible loop)';
+            resp = null;
+            break;
+          }
+          current = current.resolve(loc);
+          continue;
+        }
+        break;
       }
-      await resp.drain<void>().timeout(timeout);
-      r.totalMs = sw.elapsedMilliseconds;
+      final fr = resp;
+      if (fr != null) {
+        r.ttfbMs = sw.elapsedMilliseconds;
+        r.status = fr.statusCode;
+        r.reason = fr.reasonPhrase;
+        r.server = fr.headers.value('server');
+        fr.headers.forEach((name, values) => r.headers[name.toLowerCase()] = values.join(', '));
+        if (r.headers.containsKey('cf-ray')) {
+          r.cdn = 'Cloudflare';
+        } else if (r.headers.containsKey('x-amz-cf-id')) {
+          r.cdn = 'CloudFront';
+        }
+        final bytes = <int>[];
+        await for (final chunk in fr.timeout(timeout)) {
+          if (bytes.length < 65536) bytes.addAll(chunk);
+        }
+        r.body = utf8.decode(bytes, allowMalformed: true);
+        r.totalMs = sw.elapsedMilliseconds;
+      }
     } on TimeoutException {
       r.httpError = 'Timed out after ${timeout.inSeconds}s';
     } catch (e) {
@@ -80,7 +111,26 @@ class Prober {
     } finally {
       client.close(force: true);
     }
+
+    r.repeats.add(r.status);
+    for (var i = 0; i < 2; i++) {
+      r.repeats.add(await _once(uri));
+    }
     return r;
+  }
+
+  static Future<int?> _once(Uri uri) async {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final req = await c.getUrl(uri);
+      final resp = await req.close().timeout(const Duration(seconds: 10));
+      await resp.drain<void>().timeout(const Duration(seconds: 10));
+      return resp.statusCode;
+    } catch (_) {
+      return null;
+    } finally {
+      c.close(force: true);
+    }
   }
 
   static String _short(Object e) {
